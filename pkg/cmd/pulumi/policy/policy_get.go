@@ -16,7 +16,6 @@ package policy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -299,10 +298,7 @@ type policyPackGroupJSON struct {
 }
 
 func renderPolicyGetJSON(w io.Writer, resp policyGetJSON) error {
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	return enc.Encode(resp)
+	return writeJSON(w, resp)
 }
 
 func renderPolicyGetText(w io.Writer, resp policyGetJSON) error {
