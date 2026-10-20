@@ -1,0 +1,4 @@
+component: cli/policy
+kind: feat
+body: Add `pulumi policy issue update` to set the status, priority and assignee of one or more policy issues
+time: 2026-10-20T00:00:00Z
