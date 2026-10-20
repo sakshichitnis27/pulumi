@@ -32,5 +32,6 @@ func newPolicyComplianceCmd() *cobra.Command {
 	constrictor.AttachArguments(cmd, constrictor.NoArgs)
 
 	cmd.AddCommand(newPolicyComplianceListCmd())
+	cmd.AddCommand(newPolicyCompliancePoliciesCmd())
 	return cmd
 }

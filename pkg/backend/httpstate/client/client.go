@@ -1945,6 +1945,26 @@ func (pc *Client) ListPolicyIssues(
 	return result, nil
 }
 
+// ListPoliciesCompliance returns a page of per-policy compliance rows for the given organization, wrapping the
+// `ListPoliciesCompliance` Pulumi Cloud REST endpoint (POST /api/orgs/{orgName}/policyresults/policies).
+func (pc *Client) ListPoliciesCompliance(
+	ctx context.Context, orgName string, req cloudapitype.AngularGridGetRowsRequest,
+) (cloudapitype.ListPoliciesComplianceResponse, error) {
+	// Send startRow and endRow even when zero; the generated type omits them.
+	body := struct {
+		cloudapitype.AngularGridGetRowsRequest
+		StartRow int `json:"startRow"`
+		EndRow   int `json:"endRow"`
+	}{req, req.StartRow, req.EndRow}
+	path := fmt.Sprintf("/api/orgs/%s/policyresults/policies", url.PathEscape(orgName))
+
+	var resp cloudapitype.ListPoliciesComplianceResponse
+	if err := pc.restCall(ctx, http.MethodPost, path, nil, body, &resp); err != nil {
+		return cloudapitype.ListPoliciesComplianceResponse{}, fmt.Errorf("listing policy compliance: %w", err)
+	}
+	return resp, nil
+}
+
 // ExportPolicyIssues streams the policy issues matching the request as CSV, wrapping the `ExportPolicyIssues`
 // Pulumi Cloud REST endpoint (POST /api/orgs/{orgName}/policyresults/issues/export). The caller must close the
 // returned stream.
