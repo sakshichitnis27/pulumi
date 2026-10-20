@@ -1994,6 +1994,28 @@ func (pc *Client) GetPolicyIssue(
 	return result, nil
 }
 
+// UpdatePolicyIssue updates the status, priority or assignee of a policy issue, wrapping
+// the `UpdatePolicyIssue` Pulumi Cloud REST endpoint
+// (PATCH /api/orgs/{orgName}/policyresults/issues/{issueId}).
+func (pc *Client) UpdatePolicyIssue(
+	ctx context.Context, orgName, issueID string, req cloudapitype.UpdatePolicyIssueRequest,
+) (cloudapitype.GetPolicyIssueResponse, error) {
+	path := fmt.Sprintf(
+		"/api/orgs/%s/policyresults/issues/%s",
+		url.PathEscape(orgName), url.PathEscape(issueID))
+
+	var resp struct {
+		cloudapitype.GetPolicyIssueResponse
+		PolicyIssue policyIssueWire `json:"policyIssue"`
+	}
+	if err := pc.restCall(ctx, http.MethodPatch, path, nil, req, &resp); err != nil {
+		return cloudapitype.GetPolicyIssueResponse{}, fmt.Errorf("updating policy issue: %w", err)
+	}
+	result := resp.GetPolicyIssueResponse
+	result.PolicyIssue = resp.PolicyIssue.toPolicyIssue()
+	return result, nil
+}
+
 // ListPolicyPacks lists all `PolicyPack` the organization has in the Pulumi service.
 func (pc *Client) ListPolicyPacks(ctx context.Context, orgName string, inContToken *string) (
 	apitype.ListPolicyPacksResponse, *string, error,
