@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/blang/semver"
+	cloudapitype "github.com/pulumi/pulumi-cloud-sdk/go/apitype"
 	"github.com/pulumi/pulumi/pkg/v3/engine"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
@@ -2379,4 +2380,18 @@ func TestBatchUpdatePolicyGroup(t *testing.T) {
 		{"removePolicyPack": {"name": "tagging", "versionTag": "1.0.0"}},
 		{"addInsightsAccount": {"name": "prod-aws"}}
 	]`, body)
+}
+
+func TestListPolicyIssues_FirstPageSendsZeroStartRow(t *testing.T) {
+	t.Parallel()
+
+	var got capturedRequest
+	c := newCapturingClient(t, &got)
+	_, err := c.ListPolicyIssues(t.Context(), "acme", cloudapitype.AngularGridGetRowsRequest{EndRow: 100})
+	require.NoError(t, err)
+
+	var body map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(got.body), &body))
+	assert.JSONEq(t, `0`, string(body["startRow"]))
+	assert.JSONEq(t, `100`, string(body["endRow"]))
 }
