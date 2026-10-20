@@ -135,9 +135,17 @@ func TestPin_PolicyIssueList_Table(t *testing.T) {
 
 func TestPin_PolicyIssueGet_JSON_Full(t *testing.T) {
 	t.Parallel()
-	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueGetJSON(w, pinIssueFull()) })
+	got := renderPin(t, func(w *bytes.Buffer) error {
+		return renderPolicyIssueGetJSON(w, cloudapitype.GetPolicyIssueResponse{PolicyIssue: pinIssueFull()})
+	})
 	assert.JSONEq(t, `{
   "id": "issue-1",
+  "entityType": "stack",
+  "kind": "audit",
+  "priority": "P1",
+  "resourceName": "assets",
+  "resourceProvider": "aws",
+  "lastModified": "2026-03-05T06:07:08.5Z",
   "policyName": "s3-no-public",
   "policyPack": "aws-guardrails",
   "policyPackTag": "3.1.0",
@@ -156,7 +164,9 @@ func TestPin_PolicyIssueGet_JSON_Full(t *testing.T) {
 
 func TestPin_PolicyIssueGet_JSON_Minimal(t *testing.T) {
 	t.Parallel()
-	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueGetJSON(w, pinIssueMinimal()) })
+	got := renderPin(t, func(w *bytes.Buffer) error {
+		return renderPolicyIssueGetJSON(w, cloudapitype.GetPolicyIssueResponse{PolicyIssue: pinIssueMinimal()})
+	})
 	assert.JSONEq(t, `{
   "id": "issue-2",
   "policyName": "require-owner",
@@ -168,13 +178,17 @@ func TestPin_PolicyIssueGet_JSON_Minimal(t *testing.T) {
 
 func TestPin_PolicyIssueGet_Table(t *testing.T) {
 	t.Parallel()
-	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueGetText(w, pinIssueFull()) })
+	got := renderPin(t, func(w *bytes.Buffer) error {
+		return renderPolicyIssueGetText(w, cloudapitype.GetPolicyIssueResponse{PolicyIssue: pinIssueFull()})
+	})
 	assert.Equal(t, `ID:                  issue-1
 Policy pack:         aws-guardrails@3.1.0
 Policy:              s3-no-public
 Enforcement level:   mandatory
 Severity:            critical
 Status:              open
+Priority:            P1
+Kind:                audit
 Stack:               web/prod
 Resource URN:        urn:pulumi:prod::web::aws:s3/bucket:Bucket::assets
 Resource type:       aws:s3/bucket:Bucket

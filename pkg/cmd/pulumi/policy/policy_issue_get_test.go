@@ -32,7 +32,7 @@ import (
 // mockPolicyIssueGetClient stubs policyIssueGetClient. It returns a fixed
 // response (or error) and records the arguments it was called with.
 type mockPolicyIssueGetClient struct {
-	resp       cloudapitype.PolicyIssue
+	resp       cloudapitype.GetPolicyIssueResponse
 	err        error
 	gotOrg     string
 	gotIssueID string
@@ -40,11 +40,11 @@ type mockPolicyIssueGetClient struct {
 
 func (m *mockPolicyIssueGetClient) GetPolicyIssue(
 	_ context.Context, org, issueID string,
-) (cloudapitype.PolicyIssue, error) {
+) (cloudapitype.GetPolicyIssueResponse, error) {
 	m.gotOrg = org
 	m.gotIssueID = issueID
 	if m.err != nil {
-		return cloudapitype.PolicyIssue{}, m.err
+		return cloudapitype.GetPolicyIssueResponse{}, m.err
 	}
 	return m.resp, nil
 }
@@ -82,7 +82,7 @@ func TestPolicyIssueGet_DefaultOutput(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
-	c := &mockPolicyIssueGetClient{resp: samplePolicyIssue()}
+	c := &mockPolicyIssueGetClient{resp: cloudapitype.GetPolicyIssueResponse{PolicyIssue: samplePolicyIssue()}}
 	err := runPolicyIssueGet(t.Context(), buf,
 		stubPolicyIssueGetFactory(c, "acme"), "issue-1",
 		policyIssueGetArgs{outputFormat: defaultPolicyIssueGetOutputFormat()})
@@ -107,7 +107,7 @@ func TestPolicyIssueGet_JSONOutput(t *testing.T) {
 	t.Parallel()
 
 	buf := &bytes.Buffer{}
-	c := &mockPolicyIssueGetClient{resp: samplePolicyIssue()}
+	c := &mockPolicyIssueGetClient{resp: cloudapitype.GetPolicyIssueResponse{PolicyIssue: samplePolicyIssue()}}
 	args := policyIssueGetArgs{outputFormat: defaultPolicyIssueGetOutputFormat()}
 	require.NoError(t, args.outputFormat.Set("json"))
 	err := runPolicyIssueGet(t.Context(), buf,
@@ -172,11 +172,13 @@ func TestPolicyIssueGet_UnknownEnumValues(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(runPolicyIssueGetAgainstServer(t, unknownEnumIssueJSON, jsonArgs)), &got))
 	assert.Equal(t, "future_status", got["status"])
 	assert.Equal(t, "future", got["severity"])
+	assert.Equal(t, "future_kind", got["kind"])
 
 	text := runPolicyIssueGetAgainstServer(t, unknownEnumIssueJSON,
 		policyIssueGetArgs{outputFormat: defaultPolicyIssueGetOutputFormat()})
 	assert.Contains(t, text, "Severity:            future\n")
 	assert.Contains(t, text, "Status:              future_status\n")
+	assert.Contains(t, text, "Kind:                future_kind\n")
 }
 
 func TestPolicyIssueGet_Timestamps(t *testing.T) {
@@ -196,10 +198,165 @@ Policy:              s3-no-public
 Enforcement level:   mandatory
 Severity:            critical
 Status:              open
+Priority:            P1
+Kind:                audit
 Stack:               web/prod
 Resource URN:        urn:pulumi:prod::web::aws:s3/bucket:Bucket::assets
 Resource type:       aws:s3/bucket:Bucket
 Observed at:         2026-10-01T12:34:56.789123Z
 Message:             Bucket must not allow public access & <must> be "private".
 `, text)
+}
+
+func sampleFullPolicyIssueResponse() cloudapitype.GetPolicyIssueResponse {
+	issue := samplePolicyIssue()
+	issue.Status = cloudapitype.PolicyIssueStatusOpen
+	issue.Kind = cloudapitype.PolicyIssueKindAudit
+	issue.Priority = cloudapitype.PolicyIssuePriorityP1
+	issue.AssignedTo = &cloudapitype.UserInfo{GitHubLogin: "alice", Name: "Alice"}
+	issue.PolicyGroupName = new("prod")
+	issue.PolicyGroupType = new(cloudapitype.PolicyGroupModeAudit)
+	return cloudapitype.GetPolicyIssueResponse{
+		PolicyIssue: issue,
+		Policy: &cloudapitype.AppPolicy{
+			Name:             "no-public-buckets",
+			DisplayName:      "No public buckets",
+			Description:      "d",
+			RemediationSteps: "r",
+			URL:              "https://example.com/no-public-buckets",
+			Tags:             []string{"s3", "security"},
+			Framework: &cloudapitype.AppPolicyComplianceFramework{
+				Name: "CIS", Version: "1.4", Reference: "2.1.5",
+			},
+		},
+	}
+}
+
+func renderPolicyIssueGetWith(t *testing.T, resp cloudapitype.GetPolicyIssueResponse, format string) string {
+	t.Helper()
+	args := policyIssueGetArgs{outputFormat: defaultPolicyIssueGetOutputFormat()}
+	if format != "" {
+		require.NoError(t, args.outputFormat.Set(format))
+	}
+	buf := &bytes.Buffer{}
+	require.NoError(t, runPolicyIssueGet(t.Context(), buf,
+		stubPolicyIssueGetFactory(&mockPolicyIssueGetClient{resp: resp}, "acme"), "issue-1", args))
+	return buf.String()
+}
+
+func TestPolicyIssueGet_JSONFullDetails(t *testing.T) {
+	t.Parallel()
+
+	out := renderPolicyIssueGetWith(t, sampleFullPolicyIssueResponse(), "json")
+	assert.Contains(t, out, `"assignedTo": "alice"`)
+	assert.Contains(t, out, `"priority": "p1"`)
+	assert.Contains(t, out, `"policyGroupName": "prod"`)
+	assert.Contains(t, out, `"remediationSteps": "r"`)
+	assert.Contains(t, out, `"framework"`)
+
+	var got map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.JSONEq(t, `"audit"`, string(got["kind"]))
+	assert.JSONEq(t, `"audit"`, string(got["policyGroupType"]))
+	assert.JSONEq(t, `{
+		"displayName": "No public buckets",
+		"description": "d",
+		"remediationSteps": "r",
+		"url": "https://example.com/no-public-buckets",
+		"tags": ["s3", "security"],
+		"framework": {"name": "CIS", "version": "1.4", "reference": "2.1.5"}
+	}`, string(got["policy"]))
+}
+
+func TestPolicyIssueGet_TextFullDetails(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, `ID:                  issue-1
+Policy pack:         aws-guardrails@1.2.0
+Policy:              no-public-buckets
+Enforcement level:   mandatory
+Severity:            high
+Status:              open
+Priority:            p1
+Assignee:            alice
+Policy group:        prod (audit)
+Kind:                audit
+Stack:               web/prod
+Resource URN:        urn:pulumi:prod::web::aws:s3/bucket:Bucket::data
+Resource type:       aws:s3/bucket:Bucket
+Observed at:         2026-05-01T12:00:00Z
+Message:             S3 bucket must not allow public access
+Description:         d
+Remediation:         r
+Framework:           CIS 1.4 — 2.1.5
+More info:           https://example.com/no-public-buckets
+`, renderPolicyIssueGetWith(t, sampleFullPolicyIssueResponse(), ""))
+}
+
+func TestPolicyIssueGet_NullPolicy(t *testing.T) {
+	t.Parallel()
+
+	c := newPolicyIssueServerClient(t, func(*http.Request) string {
+		return `{"policyIssue": ` + fractionalTimestampIssueJSON + `, "policy": null, "policyPack": null}`
+	})
+	run := func(format string) string {
+		args := policyIssueGetArgs{outputFormat: defaultPolicyIssueGetOutputFormat()}
+		if format != "" {
+			require.NoError(t, args.outputFormat.Set(format))
+		}
+		buf := &bytes.Buffer{}
+		require.NoError(t, runPolicyIssueGet(t.Context(), buf, stubPolicyIssueGetFactory(c, "acme"), "issue-1", args))
+		return buf.String()
+	}
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(run("json")), &got))
+	assert.NotContains(t, got, "policy")
+	assert.Equal(t, "s3-no-public", got["policyName"])
+
+	text := run("")
+	assert.NotContains(t, text, "Description:")
+	assert.NotContains(t, text, "Remediation:")
+	assert.NotContains(t, text, "Framework:")
+	assert.NotContains(t, text, "More info:")
+}
+
+func TestPolicyIssueGet_Unassigned(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		assignedTo *cloudapitype.UserInfo
+	}{
+		{"nil", nil},
+		{"empty login", &cloudapitype.UserInfo{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := sampleFullPolicyIssueResponse()
+			resp.PolicyIssue.AssignedTo = tt.assignedTo
+
+			assert.NotContains(t, renderPolicyIssueGetWith(t, resp, "json"), `"assignedTo"`)
+			assert.NotContains(t, renderPolicyIssueGetWith(t, resp, ""), "Assignee:")
+		})
+	}
+}
+
+func TestFormatPolicyFramework(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		framework cloudapitype.AppPolicyComplianceFramework
+		want      string
+	}{
+		{cloudapitype.AppPolicyComplianceFramework{Name: "CIS", Version: "1.4", Reference: "2.1.5"}, "CIS 1.4 — 2.1.5"},
+		{cloudapitype.AppPolicyComplianceFramework{Name: "CIS", Version: "1.4"}, "CIS 1.4"},
+		{cloudapitype.AppPolicyComplianceFramework{Name: "CIS", Reference: "2.1.5"}, "CIS — 2.1.5"},
+		{cloudapitype.AppPolicyComplianceFramework{Reference: "2.1.5"}, "2.1.5"},
+		{cloudapitype.AppPolicyComplianceFramework{}, ""},
+	} {
+		assert.Equal(t, tt.want, formatPolicyFramework(&tt.framework))
+	}
+	assert.Empty(t, formatPolicyFramework(nil))
 }
