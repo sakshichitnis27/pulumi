@@ -2434,3 +2434,22 @@ func TestGetPolicyGroup_MalformedFieldStillErrors(t *testing.T) {
 	_, err := newMockClient(server).GetPolicyGroup(t.Context(), "acme", "prod-policies")
 	assert.ErrorContains(t, err, "getting policy group: unmarshalling response object")
 }
+
+func TestGetPolicyPack(t *testing.T) {
+	t.Parallel()
+
+	server := newMockServerRequestProcessor(http.StatusOK, func(req *http.Request) string {
+		assert.Equal(t, http.MethodGet, req.Method)
+		assert.Equal(t, "/api/orgs/acme/policypacks/aws-guardrails/versions/1.2.0", req.URL.Path)
+		return `{"name":"aws-guardrails","displayName":"AWS Guardrails","version":3,"versionTag":"1.2.0","applied":true,` +
+			`"policies":[{"name":"s3-no-public","enforcementLevel":"mandatory","severity":"high","description":"d"}]}`
+	})
+	defer server.Close()
+
+	resp, err := newMockClient(server).GetPolicyPack(t.Context(), "acme", "aws-guardrails", "1.2.0")
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, resp.Version)
+	require.Len(t, resp.Policies, 1)
+	assert.Equal(t, cloudapitype.AppEnforcementLevelMandatory, resp.Policies[0].EnforcementLevel)
+}
