@@ -46,11 +46,11 @@ type policyIssueListClient interface {
 }
 
 // policyIssueListClientFactory resolves a cloud client and the organization
-// to list issues for. orgFlag carries the raw value of `--org` (empty means
-// "use the default org").
+// to list issues for, plus the current user's login. orgFlag carries the raw
+// value of `--org` (empty means "use the default org").
 type policyIssueListClientFactory func(
 	ctx context.Context, orgFlag string,
-) (policyIssueListClient, string, error)
+) (client policyIssueListClient, org, login string, err error)
 
 // policyIssueListArgs collects the flag values for the list command, in one
 // struct so Run can be driven directly from tests.
@@ -59,6 +59,7 @@ type policyIssueListArgs struct {
 	count        int64
 	all          bool
 	closed       bool
+	filters      policyIssueFilters
 	outputFormat outputflag.OutputFlag[policyIssueListRenderFunc]
 }
 
@@ -100,7 +101,11 @@ func newPolicyIssueListCmdWith(factory policyIssueListClientFactory) *cobra.Comm
 		Example: "  # List active policy issues\n" +
 			"  pulumi policy issue ls\n\n" +
 			"  # List all closed policy issues as JSON\n" +
-			"  pulumi policy issue ls --closed --all -o json",
+			"  pulumi policy issue ls --closed --all -o json\n\n" +
+			"  # List open high and critical severity issues\n" +
+			"  pulumi policy issue ls --severity high --severity critical --status open\n\n" +
+			"  # List issues for a stack, newest first, as JSON\n" +
+			"  pulumi policy issue ls --stack web/prod --sort observedAt:desc -o json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPolicyIssueList(cmd.Context(), cmd.OutOrStdout(), factory, args)
 		},
@@ -113,6 +118,7 @@ func newPolicyIssueListCmdWith(factory policyIssueListClientFactory) *cobra.Comm
 		"Maximum number of issues to return (default 100)")
 	cmd.Flags().BoolVar(&args.all, "all", false, "Return all matching issues; mutually exclusive with --count")
 	cmd.Flags().BoolVar(&args.closed, "closed", false, "List closed issues instead of active ones")
+	addPolicyIssueFilterFlags(cmd.Flags(), &args.filters, filterAll)
 	cmd.MarkFlagsMutuallyExclusive("count", "all")
 	outputflag.VarP(cmd.Flags(), &args.outputFormat)
 
@@ -124,30 +130,30 @@ func newPolicyIssueListCmdWith(factory policyIssueListClientFactory) *cobra.Comm
 // underlying *client.Client.
 func defaultPolicyIssueListClientFactory(
 	ctx context.Context, orgFlag string,
-) (policyIssueListClient, string, error) {
+) (policyIssueListClient, string, string, error) {
 	ws := pkgWorkspace.Instance
 	opts := display.Options{Color: cmdutil.GetGlobalColorization()}
 
 	be, err := cmdBackend.CurrentBackend(ctx, ws, cmdBackend.DefaultLoginManager, nil, opts)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	cloudBackend, ok := be.(httpstate.Backend)
 	if !ok {
-		return nil, "", errors.New(
+		return nil, "", "", errors.New(
 			"listing policy issues requires the Pulumi Cloud backend; run `pulumi login`")
 	}
 
 	userName, orgs, _, err := cloudBackend.CurrentUser()
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	org := orgFlag
 	if org == "" {
 		defaultOrg, err := cloudBackend.GetDefaultOrg(ctx)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		org = defaultOrg
 	}
@@ -156,10 +162,10 @@ func defaultPolicyIssueListClientFactory(
 	}
 
 	if !slices.Contains(orgs, org) && org != userName {
-		return nil, "", fmt.Errorf("user %s is not a member of organization %s", userName, org)
+		return nil, "", "", fmt.Errorf("user %s is not a member of organization %s", userName, org)
 	}
 
-	return cloudBackend.Client(), org, nil
+	return cloudBackend.Client(), org, userName, nil
 }
 
 // defaultPageSize is the number of items fetched per API call.
@@ -171,7 +177,12 @@ func runPolicyIssueList(
 	ctx context.Context, w io.Writer,
 	factory policyIssueListClientFactory, args policyIssueListArgs,
 ) error {
-	c, org, err := factory(ctx, args.org)
+	c, org, login, err := factory(ctx, args.org)
+	if err != nil {
+		return err
+	}
+
+	filterModel, sortModel, err := buildPolicyIssueGrid(args.filters, login)
 	if err != nil {
 		return err
 	}
@@ -195,8 +206,10 @@ func runPolicyIssueList(
 		}
 
 		resp, err := c.ListPolicyIssues(ctx, org, cloudapitype.AngularGridGetRowsRequest{
-			StartRow: startRow,
-			EndRow:   startRow + pageSize,
+			StartRow:    startRow,
+			EndRow:      startRow + pageSize,
+			FilterModel: filterModel,
+			SortModel:   sortModel,
 		}, args.closed)
 		if err != nil {
 			return fmt.Errorf("listing policy issues: %w", err)

@@ -48,6 +48,8 @@ const (
 	filterURN
 	filterAssignedTo
 	filterSort
+
+	filterAll = filterSort<<1 - 1
 )
 
 const (

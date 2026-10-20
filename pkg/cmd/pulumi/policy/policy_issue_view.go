@@ -40,6 +40,9 @@ type policyIssueJSON struct {
 	Status           string `json:"status,omitempty"`
 	Kind             string `json:"kind,omitempty"`
 	Priority         string `json:"priority,omitempty"`
+	AssignedTo       string `json:"assignedTo,omitempty"`
+	PolicyGroupName  string `json:"policyGroupName,omitempty"`
+	PolicyGroupType  string `json:"policyGroupType,omitempty"`
 }
 
 func toPolicyIssueJSON(issue cloudapitype.PolicyIssue) policyIssueJSON {
@@ -63,6 +66,9 @@ func toPolicyIssueJSON(issue cloudapitype.PolicyIssue) policyIssueJSON {
 		Status:           string(issue.Status),
 		Kind:             string(issue.Kind),
 		Priority:         string(issue.Priority),
+		AssignedTo:       policyIssueAssignee(issue),
+		PolicyGroupName:  policyIssueGroupName(issue),
+		PolicyGroupType:  policyIssueGroupType(issue),
 	}
 }
 
