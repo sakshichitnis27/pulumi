@@ -17,7 +17,6 @@ package policy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/pulumi/pulumi/pkg/v3/backend/display"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
+	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
 	cmdBackend "github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/backend"
 	"github.com/pulumi/pulumi/pkg/v3/cmd/pulumi/constrictor"
 	"github.com/pulumi/pulumi/pkg/v3/util/outputflag"
@@ -131,6 +131,19 @@ func newPolicyIssueListCmdWith(factory policyIssueListClientFactory) *cobra.Comm
 func defaultPolicyIssueListClientFactory(
 	ctx context.Context, orgFlag string,
 ) (policyIssueListClient, string, string, error) {
+	c, org, login, err := resolvePolicyIssueCloudClient(ctx, orgFlag, "listing policy issues")
+	if err != nil {
+		return nil, "", "", err
+	}
+	return c, org, login, nil
+}
+
+// resolvePolicyIssueCloudClient resolves the Pulumi Cloud client, the effective
+// organization and the current user's login. action completes the sentence
+// "<action> requires the Pulumi Cloud backend" when the backend isn't cloud.
+func resolvePolicyIssueCloudClient(
+	ctx context.Context, orgFlag, action string,
+) (*client.Client, string, string, error) {
 	ws := pkgWorkspace.Instance
 	opts := display.Options{Color: cmdutil.GetGlobalColorization()}
 
@@ -140,8 +153,7 @@ func defaultPolicyIssueListClientFactory(
 	}
 	cloudBackend, ok := be.(httpstate.Backend)
 	if !ok {
-		return nil, "", "", errors.New(
-			"listing policy issues requires the Pulumi Cloud backend; run `pulumi login`")
+		return nil, "", "", fmt.Errorf("%s requires the Pulumi Cloud backend; run `pulumi login`", action)
 	}
 
 	userName, orgs, _, err := cloudBackend.CurrentUser()

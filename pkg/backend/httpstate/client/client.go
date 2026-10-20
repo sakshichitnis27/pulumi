@@ -1945,6 +1945,24 @@ func (pc *Client) ListPolicyIssues(
 	return result, nil
 }
 
+// ExportPolicyIssues streams the policy issues matching the request as CSV, wrapping the `ExportPolicyIssues`
+// Pulumi Cloud REST endpoint (POST /api/orgs/{orgName}/policyresults/issues/export). The caller must close the
+// returned stream.
+func (pc *Client) ExportPolicyIssues(
+	ctx context.Context, orgName string, req cloudapitype.AngularGridGetRowsRequest, closed bool,
+) (io.ReadCloser, error) {
+	path := fmt.Sprintf("/api/orgs/%s/policyresults/issues/export", url.PathEscape(orgName))
+	query := struct {
+		Closed bool `url:"closed,omitempty"`
+	}{closed}
+
+	var stream io.ReadCloser
+	if err := pc.restCall(ctx, http.MethodPost, path, query, req, &stream); err != nil {
+		return nil, fmt.Errorf("exporting policy issues: %w", err)
+	}
+	return stream, nil
+}
+
 // policyIssueWire decodes a policy issue without the generated Kind validation, which rejects kinds newer than this
 // CLI; the raw kind is kept so it can still be shown.
 type policyIssueWire struct {
