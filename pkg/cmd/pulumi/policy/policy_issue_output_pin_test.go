@@ -61,7 +61,7 @@ func TestPin_PolicyIssueList_JSON_Full(t *testing.T) {
 		PolicyIssues: []cloudapitype.PolicyIssue{pinIssueFull(), pinIssueMinimal()},
 		RowCount:     new(250),
 	}
-	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueListJSON(w, resp) })
+	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueListJSON(w, resp, false) })
 	assert.JSONEq(t, `{
   "issues": [
     {
@@ -100,7 +100,7 @@ func TestPin_PolicyIssueList_JSON_Full(t *testing.T) {
 func TestPin_PolicyIssueList_JSON_Minimal(t *testing.T) {
 	t.Parallel()
 	got := renderPin(t, func(w *bytes.Buffer) error {
-		return renderPolicyIssueListJSON(w, cloudapitype.ListPolicyIssuesResponse{})
+		return renderPolicyIssueListJSON(w, cloudapitype.ListPolicyIssuesResponse{}, false)
 	})
 	assert.JSONEq(t, `{
   "issues": [],
@@ -115,7 +115,7 @@ func TestPin_PolicyIssueList_Table(t *testing.T) {
 		PolicyIssues: []cloudapitype.PolicyIssue{pinIssueFull(), pinIssueMinimal()},
 		RowCount:     new(250),
 	}
-	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueListTable(w, resp) })
+	got := renderPin(t, func(w *bytes.Buffer) error { return renderPolicyIssueListTable(w, resp, false) })
 	assert.Equal(t, ""+
 		`┌─────────┬──────────────────────┬───────────────┬─────────────┬──────`+
 		`────┬────────────────────────────────────────────────────────────┐`+"\n"+

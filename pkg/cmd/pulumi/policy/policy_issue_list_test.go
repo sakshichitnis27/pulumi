@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,8 +35,9 @@ import (
 // capturedPolicyIssueListCall records the inputs to a single ListPolicyIssues
 // call so tests can assert on the flag-to-request propagation.
 type capturedPolicyIssueListCall struct {
-	org string
-	req cloudapitype.AngularGridGetRowsRequest
+	org    string
+	req    cloudapitype.AngularGridGetRowsRequest
+	closed bool
 }
 
 // mockPolicyIssueListClient stubs policyIssueListClient. It returns a fixed
@@ -47,10 +49,10 @@ type mockPolicyIssueListClient struct {
 }
 
 func (m *mockPolicyIssueListClient) ListPolicyIssues(
-	_ context.Context, org string, req cloudapitype.AngularGridGetRowsRequest,
+	_ context.Context, org string, req cloudapitype.AngularGridGetRowsRequest, closed bool,
 ) (cloudapitype.ListPolicyIssuesResponse, error) {
 	if m.captured != nil {
-		*m.captured = capturedPolicyIssueListCall{org: org, req: req}
+		*m.captured = capturedPolicyIssueListCall{org: org, req: req, closed: closed}
 	}
 	if m.err != nil {
 		return cloudapitype.ListPolicyIssuesResponse{}, m.err
@@ -302,7 +304,49 @@ func TestPolicyIssueList_Timestamps(t *testing.T) {
 		return renderPolicyIssueListTable(w, cloudapitype.ListPolicyIssuesResponse{
 			PolicyIssues: []cloudapitype.PolicyIssue{pinIssueFull(), pinIssueMinimal()},
 			RowCount:     new(250),
-		})
+		}, false)
 	})
 	assert.Equal(t, want, table)
+}
+
+func TestPolicyIssueList_ClosedFlagPassedToClient(t *testing.T) {
+	t.Parallel()
+
+	var closedByPage []bool
+	c := &pagingPolicyIssueListClient{
+		onCall: func(closed bool) { closedByPage = append(closedByPage, closed) },
+	}
+	err := runPolicyIssueList(t.Context(), &bytes.Buffer{},
+		stubPolicyIssueListFactory(c, "acme"),
+		policyIssueListArgs{closed: true, all: true, outputFormat: defaultPolicyIssueListOutputFormat()})
+	require.NoError(t, err)
+	assert.Equal(t, []bool{true, true}, closedByPage)
+}
+
+func TestPolicyIssueList_ClosedEmptyMessage(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	c := &mockPolicyIssueListClient{resp: cloudapitype.ListPolicyIssuesResponse{}}
+	err := runPolicyIssueList(t.Context(), buf,
+		stubPolicyIssueListFactory(c, "acme"),
+		policyIssueListArgs{closed: true, outputFormat: defaultPolicyIssueListOutputFormat()})
+	require.NoError(t, err)
+	assert.Equal(t, "No closed policy issues found for this organization.\n", buf.String())
+}
+
+type pagingPolicyIssueListClient struct {
+	onCall func(closed bool)
+	calls  int
+}
+
+func (p *pagingPolicyIssueListClient) ListPolicyIssues(
+	_ context.Context, _ string, _ cloudapitype.AngularGridGetRowsRequest, closed bool,
+) (cloudapitype.ListPolicyIssuesResponse, error) {
+	p.onCall(closed)
+	p.calls++
+	return cloudapitype.ListPolicyIssuesResponse{
+		PolicyIssues: []cloudapitype.PolicyIssue{{ID: fmt.Sprintf("issue-%d", p.calls)}},
+		RowCount:     new(2),
+	}, nil
 }

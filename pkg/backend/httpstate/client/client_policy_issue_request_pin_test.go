@@ -32,7 +32,7 @@ func TestPin_ListPolicyIssues_Body(t *testing.T) {
 	_, err := c.ListPolicyIssues(t.Context(), "acme", cloudapitype.AngularGridGetRowsRequest{
 		StartRow: 100,
 		EndRow:   200,
-	})
+	}, false)
 	require.NoError(t, err)
 
 	assert.Equal(t, http.MethodPost, got.method)
