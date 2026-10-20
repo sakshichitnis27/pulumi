@@ -93,10 +93,28 @@ func TestPolicyCompliancePolicies_Paginates(t *testing.T) {
 	assert.Equal(t, 100, c.reqs[0].EndRow)
 	assert.Equal(t, 100, c.reqs[1].StartRow)
 	assert.Equal(t, 200, c.reqs[1].EndRow)
+	for _, req := range c.reqs {
+		assert.Equal(t, policyComplianceSortModel(), req.SortModel)
+	}
 
 	var got policyCompliancePoliciesJSON
 	require.NoError(t, json.Unmarshal([]byte(out), &got))
 	require.Len(t, got.Policies, 120)
+}
+
+func TestPolicyCompliancePolicies_FullPageThenEmpty(t *testing.T) {
+	t.Parallel()
+
+	c := &mockPolicyCompliancePoliciesClient{
+		pages: [][]cloudapitype.PolicyComplianceRow{complianceRows(100), nil},
+	}
+	out, err := runPolicyCompliancePoliciesCmd(t, c, "--output", "json")
+	require.NoError(t, err)
+	require.Len(t, c.reqs, 2)
+
+	var got policyCompliancePoliciesJSON
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	require.Len(t, got.Policies, 100)
 }
 
 func TestPolicyCompliancePolicies_JSONOmitsPlaceholderFields(t *testing.T) {
@@ -119,7 +137,13 @@ func TestPolicyCompliancePolicies_Filters(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, c.reqs, 1)
 	require.NotNil(t, c.reqs[0].FilterModel)
-	assert.Nil(t, c.reqs[0].SortModel)
+	sortBody, err := json.Marshal(c.reqs[0].SortModel)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[
+		{"colId":"failingResources","sort":"desc"},
+		{"colId":"policyPack","sort":"asc"},
+		{"colId":"policyName","sort":"asc"},
+		{"colId":"policyGroupName","sort":"asc"}]`, string(sortBody))
 	body, err := json.Marshal(c.reqs[0].FilterModel)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "aws")
@@ -162,4 +186,5 @@ func TestPolicyCompliancePolicies_ServerError(t *testing.T) {
 	c := &mockPolicyCompliancePoliciesClient{err: assert.AnError}
 	_, err := runPolicyCompliancePoliciesCmd(t, c)
 	require.ErrorIs(t, err, assert.AnError)
+	assert.Equal(t, assert.AnError.Error(), err.Error())
 }

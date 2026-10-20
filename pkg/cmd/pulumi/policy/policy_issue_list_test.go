@@ -445,6 +445,21 @@ func TestPolicyIssueList_InvalidFilterFailsBeforeRequest(t *testing.T) {
 	assert.Empty(t, c.reqs)
 }
 
+func TestPolicyIssueList_InvalidFilterFailsBeforeFactory(t *testing.T) {
+	t.Parallel()
+
+	factory := func(context.Context, string) (policyIssueListClient, string, string, error) {
+		t.Fatal("factory must not be called when a filter is invalid")
+		return nil, "", "", nil
+	}
+	err := runPolicyIssueList(t.Context(), &bytes.Buffer{}, factory,
+		policyIssueListArgs{
+			filters:      policyIssueFilters{severities: []string{"urgent"}},
+			outputFormat: defaultPolicyIssueListOutputFormat(),
+		})
+	require.ErrorContains(t, err, "critical")
+}
+
 func TestPolicyIssueList_ServerRejectsFilter(t *testing.T) {
 	t.Parallel()
 

@@ -60,6 +60,10 @@ const (
 	gridSortAsc        = "asc"
 	gridSortDesc       = "desc"
 	assignedToMe       = "me"
+
+	colEntityType    = "entityType"
+	colEntityProject = "entityProject"
+	colEntityID      = "entityId"
 )
 
 var policyIssueSortFields = []string{
@@ -96,49 +100,49 @@ func policyIssueFilterColumns() []policyIssueFilterColumn {
 		{
 			flag: "severity", which: filterSeverity, colID: "severity",
 			allowed: enumStrings(cloudapitype.AppPolicySeverity("").AllValues()),
-			usage:   "Only show issues with this severity (repeatable)",
+			usage:   "Filter by severity (repeatable)",
 			values:  func(f *policyIssueFilters) *[]string { return &f.severities },
 		},
 		{
 			flag: "priority", which: filterPriority, colID: "priority",
 			allowed: enumStrings(cloudapitype.PolicyIssuePriority("").AllValues()),
-			usage:   "Only show issues with this priority (repeatable)",
+			usage:   "Filter by priority (repeatable)",
 			values:  func(f *policyIssueFilters) *[]string { return &f.priorities },
 		},
 		{
 			flag: "status", which: filterStatus, colID: "status",
 			allowed: enumStrings(cloudapitype.PolicyIssueStatus("").AllValues()),
-			usage:   "Only show issues with this status (repeatable)",
+			usage:   "Filter by status (repeatable)",
 			values:  func(f *policyIssueFilters) *[]string { return &f.statuses },
 		},
 		{
 			flag: "pack", which: filterPack, colID: "policyPack",
-			usage:  "Only show issues from this policy pack (repeatable)",
+			usage:  "Filter by policy pack (repeatable)",
 			values: func(f *policyIssueFilters) *[]string { return &f.packs },
 		},
 		{
 			flag: "policy", which: filterPolicy, colID: "policyName",
-			usage:  "Only show issues for this policy (repeatable)",
+			usage:  "Filter by policy name (repeatable)",
 			values: func(f *policyIssueFilters) *[]string { return &f.policies },
 		},
 		{
 			flag: "group", which: filterGroup, colID: "policyGroupName",
-			usage:  "Only show issues from this policy group (repeatable)",
+			usage:  "Filter by policy group (repeatable)",
 			values: func(f *policyIssueFilters) *[]string { return &f.groups },
 		},
 		{
 			flag: "resource-type", which: filterResourceType, colID: "resourceType",
-			usage:  "Only show issues for this resource type (repeatable)",
+			usage:  "Filter by resource type (repeatable)",
 			values: func(f *policyIssueFilters) *[]string { return &f.resourceTypes },
 		},
 		{
 			flag: "urn", which: filterURN, colID: "resourceURN",
-			usage:  "Only show issues for this resource URN (repeatable)",
+			usage:  "Filter by resource URN (repeatable)",
 			values: func(f *policyIssueFilters) *[]string { return &f.urns },
 		},
 		{
 			flag: "assigned-to", which: filterAssignedTo, colID: "assignedTo",
-			usage:  "Only show issues assigned to this user login, or 'me' for the current user (repeatable)",
+			usage:  "Filter by assignee login, or 'me' for the current user (repeatable)",
 			values: func(f *policyIssueFilters) *[]string { return &f.assignedTo },
 		},
 	}
@@ -160,11 +164,11 @@ func addPolicyIssueFilterFlags(flags *pflag.FlagSet, f *policyIssueFilters, whic
 	}
 	if which&filterStack != 0 {
 		flags.StringArrayVar(&f.stacks, "stack", nil,
-			"Only show issues for this stack, as <project>/<stack> (repeatable)")
+			"Filter by stack, as <project>/<stack> (repeatable)")
 	}
 	if which&filterAccount != 0 {
 		flags.StringArrayVar(&f.accounts, "account", nil,
-			"Only show issues for this Insights account (repeatable)")
+			"Filter by Insights account (repeatable)")
 	}
 	if which&filterSort != 0 {
 		flags.StringArrayVar(&f.sort, "sort", nil,
@@ -200,11 +204,48 @@ func gridGroup(combinator string, conds []cloudapitype.AngularGridFilterModel) c
 
 func validateFlagValues(flag string, values, allowed []string) error {
 	for _, v := range values {
-		if !slices.Contains(allowed, v) {
+		if v == "" {
+			return fmt.Errorf("invalid value %q for --%s: must not be empty", v, flag)
+		}
+		if allowed != nil && !slices.Contains(allowed, v) {
 			return fmt.Errorf("invalid value %q for --%s: must be one of %s", v, flag, strings.Join(allowed, ", "))
 		}
 	}
 	return nil
+}
+
+func validateStack(s string) error {
+	project, stack, ok := strings.Cut(s, "/")
+	if !ok || project == "" || stack == "" || strings.Contains(stack, "/") {
+		return fmt.Errorf("invalid value %q for --stack: expected <project>/<stack>", s)
+	}
+	return nil
+}
+
+// validatePolicyIssueFilters checks every filter and sort flag value without needing the current user, so bad
+// input is rejected before the backend is resolved.
+func validatePolicyIssueFilters(f policyIssueFilters) error {
+	for _, c := range policyIssueFilterColumns() {
+		if err := validateFlagValues(c.flag, *c.values(&f), c.allowed); err != nil {
+			return err
+		}
+	}
+	if err := validateFlagValues("stack", f.stacks, nil); err != nil {
+		return err
+	}
+	for _, s := range f.stacks {
+		if err := validateStack(s); err != nil {
+			return err
+		}
+	}
+	if err := validateFlagValues("account", f.accounts, nil); err != nil {
+		return err
+	}
+	if err := validateFlagValues("sort", f.sort, nil); err != nil {
+		return err
+	}
+	_, err := buildSortModel(f.sort)
+	return err
 }
 
 func entityFilter(parts ...[2]string) cloudapitype.AngularGridFilterModel {
@@ -215,32 +256,39 @@ func entityFilter(parts ...[2]string) cloudapitype.AngularGridFilterModel {
 	return cloudapitype.AngularGridFilterModel{Type: gridCombinatorAnd, Conditions: conds}
 }
 
-func buildStackCondition(stacks []string) (cloudapitype.AngularGridFilterModel, error) {
+func buildStackCondition(stacks []string) cloudapitype.AngularGridFilterModel {
 	conds := make([]cloudapitype.AngularGridFilterModel, 0, len(stacks))
 	for _, s := range stacks {
-		project, stack, ok := strings.Cut(s, "/")
-		if !ok || project == "" || stack == "" || strings.Contains(stack, "/") {
-			return cloudapitype.AngularGridFilterModel{},
-				fmt.Errorf("invalid value %q for --stack: expected <project>/<stack>", s)
-		}
+		project, stack, _ := strings.Cut(s, "/")
 		conds = append(conds, entityFilter(
-			[2]string{"entityType", "stack"},
-			[2]string{"entityProject", project},
-			[2]string{"entityId", stack},
+			[2]string{colEntityType, string(cloudapitype.IssueEntityTypeStack)},
+			[2]string{colEntityProject, project},
+			[2]string{colEntityID, stack},
 		))
 	}
-	return gridGroup(gridCombinatorOr, conds), nil
+	return gridGroup(gridCombinatorOr, conds)
 }
 
 func buildAccountCondition(accounts []string) cloudapitype.AngularGridFilterModel {
 	conds := make([]cloudapitype.AngularGridFilterModel, 0, len(accounts))
 	for _, a := range accounts {
 		conds = append(conds, entityFilter(
-			[2]string{"entityType", "insights-account"},
-			[2]string{"entityProject", a},
+			[2]string{colEntityType, string(cloudapitype.IssueEntityTypeInsightsAccount)},
+			[2]string{colEntityProject, a},
 		))
 	}
 	return gridGroup(gridCombinatorOr, conds)
+}
+
+// policyComplianceSortModel orders the grouped compliance rows. The service sorts them by count alone, so the group
+// columns break ties to keep offset paging from repeating or skipping rows.
+func policyComplianceSortModel() []cloudapitype.AngularGridSortModelItem {
+	return []cloudapitype.AngularGridSortModelItem{
+		{ColID: "failingResources", Sort: gridSortDesc},
+		{ColID: "policyPack", Sort: gridSortAsc},
+		{ColID: "policyName", Sort: gridSortAsc},
+		{ColID: "policyGroupName", Sort: gridSortAsc},
+	}
 }
 
 func buildSortModel(specs []string) ([]cloudapitype.AngularGridSortModelItem, error) {
@@ -271,6 +319,9 @@ func buildSortModel(specs []string) ([]cloudapitype.AngularGridSortModelItem, er
 func buildPolicyIssueGrid(
 	f policyIssueFilters, currentLogin string,
 ) (*cloudapitype.AngularGridAdvancedFilterModel, []cloudapitype.AngularGridSortModelItem, error) {
+	if err := validatePolicyIssueFilters(f); err != nil {
+		return nil, nil, err
+	}
 	sortModel, err := buildSortModel(f.sort)
 	if err != nil {
 		return nil, nil, err
@@ -281,11 +332,6 @@ func buildPolicyIssueGrid(
 		values := *c.values(&f)
 		if len(values) == 0 {
 			return nil
-		}
-		if c.allowed != nil {
-			if err := validateFlagValues(c.flag, values, c.allowed); err != nil {
-				return err
-			}
 		}
 		leaves := make([]cloudapitype.AngularGridFilterModel, 0, len(values))
 		for _, v := range values {
@@ -304,11 +350,7 @@ func buildPolicyIssueGrid(
 	for _, c := range policyIssueFilterColumns() {
 		if c.which == filterResourceType {
 			if len(f.stacks) > 0 {
-				cond, err := buildStackCondition(f.stacks)
-				if err != nil {
-					return nil, nil, err
-				}
-				perFlag = append(perFlag, cond)
+				perFlag = append(perFlag, buildStackCondition(f.stacks))
 			}
 			if len(f.accounts) > 0 {
 				perFlag = append(perFlag, buildAccountCondition(f.accounts))

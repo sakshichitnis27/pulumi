@@ -171,3 +171,29 @@ func TestAddPolicyIssueFilterFlags_OnlyRequested(t *testing.T) {
 	require.NotNil(t, flags.Lookup("sort"))
 	assert.Nil(t, flags.Lookup("pack"))
 }
+
+func TestValidatePolicyIssueFilters_RejectsEmptyValues(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{
+		"severity", "priority", "status", "pack", "policy", "group", "stack", "account",
+		"resource-type", "urn", "assigned-to", "sort",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
+			f := parseIssueFilters(t, "--"+flag, "")
+			err := validatePolicyIssueFilters(f)
+			assert.ErrorContains(t, err, `invalid value "" for --`+flag)
+			_, _, err = buildPolicyIssueGrid(f, "alice")
+			assert.ErrorContains(t, err, `invalid value "" for --`+flag)
+		})
+	}
+}
+
+func TestValidatePolicyIssueFilters_NeedsNoLogin(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, validatePolicyIssueFilters(parseIssueFilters(t, "--assigned-to", "me")))
+	assert.ErrorContains(t, validatePolicyIssueFilters(parseIssueFilters(t, "--severity", "urgent")), "critical")
+	assert.ErrorContains(t, validatePolicyIssueFilters(parseIssueFilters(t, "--stack", "prod")),
+		"expected <project>/<stack>")
+	assert.ErrorContains(t, validatePolicyIssueFilters(parseIssueFilters(t, "--sort", "message")), "--sort")
+}

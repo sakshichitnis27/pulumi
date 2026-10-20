@@ -110,6 +110,20 @@ func TestPolicyIssueExport_InvalidFilterFailsBeforeRequest(t *testing.T) {
 	assert.Empty(t, c.org)
 }
 
+func TestPolicyIssueExport_InvalidFilterFailsBeforeFactory(t *testing.T) {
+	t.Parallel()
+
+	cmd := newPolicyIssueExportCmdWith(func(context.Context, string) (policyIssueExportClient, string, string, error) {
+		t.Fatal("factory must not be called when a filter is invalid")
+		return nil, "", "", nil
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--severity", "urgent"})
+	err := cmd.ExecuteContext(t.Context())
+	assert.ErrorContains(t, err, "critical")
+}
+
 func TestPolicyIssueExport_ServerError(t *testing.T) {
 	t.Parallel()
 
@@ -117,5 +131,6 @@ func TestPolicyIssueExport_ServerError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "issues.csv")
 	_, err := runPolicyIssueExportCmd(t, c, "", "--file", path)
 	require.ErrorIs(t, err, assert.AnError)
+	assert.Equal(t, assert.AnError.Error(), err.Error())
 	assert.NoFileExists(t, path)
 }

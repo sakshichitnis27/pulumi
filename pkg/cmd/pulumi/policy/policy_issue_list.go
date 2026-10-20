@@ -105,7 +105,7 @@ func newPolicyIssueListCmdWith(factory policyIssueListClientFactory) *cobra.Comm
 			"  # List open high and critical severity issues\n" +
 			"  pulumi policy issue ls --severity high --severity critical --status open\n\n" +
 			"  # List issues for a stack, newest first, as JSON\n" +
-			"  pulumi policy issue ls --stack web/prod --sort observedAt:desc -o json",
+			"  pulumi policy issue ls --stack web/prod --sort observedAt:desc --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPolicyIssueList(cmd.Context(), cmd.OutOrStdout(), factory, args)
 		},
@@ -189,6 +189,10 @@ func runPolicyIssueList(
 	ctx context.Context, w io.Writer,
 	factory policyIssueListClientFactory, args policyIssueListArgs,
 ) error {
+	if err := validatePolicyIssueFilters(args.filters); err != nil {
+		return err
+	}
+
 	c, org, login, err := factory(ctx, args.org)
 	if err != nil {
 		return err

@@ -17,7 +17,6 @@ package policy
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 
@@ -101,6 +100,10 @@ func runPolicyIssueExport(
 	ctx context.Context, stdout io.Writer,
 	factory policyIssueExportClientFactory, args policyIssueExportArgs,
 ) (err error) {
+	if err := validatePolicyIssueFilters(args.filters); err != nil {
+		return err
+	}
+
 	c, org, login, err := factory(ctx, args.org)
 	if err != nil {
 		return err
@@ -116,7 +119,7 @@ func runPolicyIssueExport(
 		SortModel:   sortModel,
 	}, args.closed)
 	if err != nil {
-		return fmt.Errorf("exporting policy issues: %w", err)
+		return err
 	}
 	defer func() { err = errors.Join(err, stream.Close()) }()
 

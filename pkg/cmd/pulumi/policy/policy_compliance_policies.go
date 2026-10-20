@@ -73,7 +73,7 @@ func newPolicyCompliancePoliciesCmdWith(factory policyCompliancePoliciesClientFa
 		Example: "  # List policies with failing resources\n" +
 			"  pulumi policy compliance policies\n\n" +
 			"  # List failing critical policies from one pack as JSON\n" +
-			"  pulumi policy compliance policies --pack aws --severity critical -o json",
+			"  pulumi policy compliance policies --pack aws --severity critical --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPolicyCompliancePolicies(cmd.Context(), cmd.OutOrStdout(), factory, args)
 		},
@@ -119,9 +119,10 @@ func runPolicyCompliancePolicies(
 			StartRow:    startRow,
 			EndRow:      startRow + policyCompliancePoliciesPageSize,
 			FilterModel: filterModel,
+			SortModel:   policyComplianceSortModel(),
 		})
 		if err != nil {
-			return fmt.Errorf("listing policy compliance: %w", err)
+			return err
 		}
 		rows = append(rows, resp.Policies...)
 		if len(resp.Policies) < policyCompliancePoliciesPageSize {
