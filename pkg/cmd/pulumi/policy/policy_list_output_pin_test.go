@@ -18,13 +18,12 @@ import (
 	"bytes"
 	"testing"
 
+	cloudapitype "github.com/pulumi/pulumi-cloud-sdk/go/apitype"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 )
 
-func pinPolicyPacks() []apitype.PolicyPackWithVersions {
-	return []apitype.PolicyPackWithVersions{
+func pinPolicyPacks() []cloudapitype.AppPolicyPackWithVersions {
+	return []cloudapitype.AppPolicyPackWithVersions{
 		{
 			Name:        "aws-guardrails",
 			DisplayName: "AWS Guardrails",

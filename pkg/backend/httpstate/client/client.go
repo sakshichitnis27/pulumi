@@ -39,6 +39,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/opentracing/opentracing-go"
+	cloudapitype "github.com/pulumi/pulumi-cloud-sdk/go/apitype"
 	"go.opentelemetry.io/otel"
 
 	"github.com/pulumi/pulumi/pkg/v3/engine"
@@ -1693,10 +1694,10 @@ func (pc *Client) BeginUpdate(
 
 // ListPolicyGroups lists all `PolicyGroups` the organization has in the Pulumi service.
 func (pc *Client) ListPolicyGroups(ctx context.Context, orgName string, inContToken *string) (
-	apitype.ListPolicyGroupsResponse, *string, error,
+	cloudapitype.AppListPolicyGroupsResponse, *string, error,
 ) {
 	// NOTE: The ListPolicyGroups API on the Pulumi Service is not currently paginated.
-	var resp apitype.ListPolicyGroupsResponse
+	var resp cloudapitype.AppListPolicyGroupsResponse
 	err := pc.restCall(ctx, "GET", listPolicyGroupsPath(orgName), nil, nil, &resp)
 	if err != nil {
 		return resp, nil, fmt.Errorf("List Policy Groups failed: %w", err)
@@ -1706,7 +1707,7 @@ func (pc *Client) ListPolicyGroups(ctx context.Context, orgName string, inContTo
 
 // CreatePolicyGroup creates a new Policy Group in the given organization.
 func (pc *Client) CreatePolicyGroup(
-	ctx context.Context, orgName string, req apitype.CreatePolicyGroupRequest,
+	ctx context.Context, orgName string, req cloudapitype.NewPolicyGroupRequest,
 ) error {
 	if err := pc.restCall(ctx, "POST", listPolicyGroupsPath(orgName), nil, req, nil); err != nil {
 		return fmt.Errorf("creating policy group: %w", err)
@@ -1719,20 +1720,49 @@ func (pc *Client) CreatePolicyGroup(
 // cloud accounts that are members of the group.
 func (pc *Client) GetPolicyGroup(
 	ctx context.Context, orgName, policyGroup string,
-) (apitype.GetPolicyGroupResponse, error) {
-	var resp apitype.GetPolicyGroupResponse
-	err := pc.restCall(ctx, "GET", updatePolicyGroupPath(orgName, policyGroup), nil, nil, &resp)
+) (cloudapitype.PolicyGroup, error) {
+	var body []byte
+	err := pc.restCall(ctx, "GET", updatePolicyGroupPath(orgName, policyGroup), nil, nil, &body)
 	if err != nil {
-		return resp, fmt.Errorf("getting policy group: %w", err)
+		return cloudapitype.PolicyGroup{}, fmt.Errorf("getting policy group: %w", err)
+	}
+	resp, err := decodePolicyGroup(body)
+	if err != nil {
+		return cloudapitype.PolicyGroup{}, fmt.Errorf("getting policy group: unmarshalling response object: %w", err)
 	}
 	return resp, nil
+}
+
+// decodePolicyGroup ignores match rules it cannot decode: the generated decoder rejects rule types newer than
+// this CLI, and the CLI never reads the rules.
+func decodePolicyGroup(body []byte) (cloudapitype.PolicyGroup, error) {
+	var group cloudapitype.PolicyGroup
+	err := json.Unmarshal(body, &group)
+	if err == nil {
+		return group, nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return cloudapitype.PolicyGroup{}, err
+	}
+	delete(fields, "stackMatchRule")
+	delete(fields, "accountMatchRule")
+	stripped, marshalErr := json.Marshal(fields)
+	if marshalErr != nil {
+		return cloudapitype.PolicyGroup{}, err
+	}
+	group = cloudapitype.PolicyGroup{}
+	if json.Unmarshal(stripped, &group) != nil {
+		return cloudapitype.PolicyGroup{}, err
+	}
+	return group, nil
 }
 
 // BatchUpdatePolicyGroup applies the given updates to a Policy Group in one
 // request. Each update carries one mutation: a rename, or the addition or
 // removal of one stack, Policy Pack, or Insights account.
 func (pc *Client) BatchUpdatePolicyGroup(
-	ctx context.Context, orgName, policyGroup string, reqs []apitype.UpdatePolicyGroupRequest,
+	ctx context.Context, orgName, policyGroup string, reqs []cloudapitype.UpdatePolicyGroupRequest,
 ) error {
 	if err := pc.restCall(
 		ctx, http.MethodPatch, updatePolicyGroupPath(orgName, policyGroup)+"/batch", nil, reqs, nil,
@@ -1973,10 +2003,10 @@ func (pc *Client) GetPolicyIssue(
 
 // ListPolicyPacks lists all `PolicyPack` the organization has in the Pulumi service.
 func (pc *Client) ListPolicyPacks(ctx context.Context, orgName string, inContToken *string) (
-	apitype.ListPolicyPacksResponse, *string, error,
+	cloudapitype.AppListPolicyPacksResponse, *string, error,
 ) {
 	// NOTE: The ListPolicyPacks API on the Pulumi Service is not currently paginated.
-	var resp apitype.ListPolicyPacksResponse
+	var resp cloudapitype.AppListPolicyPacksResponse
 	err := pc.restCall(ctx, "GET", listPolicyPacksPath(orgName), nil, nil, &resp)
 	if err != nil {
 		return resp, nil, fmt.Errorf("List Policy Packs failed: %w", err)
@@ -2238,11 +2268,13 @@ func (pc *Client) ApplyPolicyPack(ctx context.Context, orgName, policyGroup,
 		policyGroup = apitype.DefaultPolicyGroup
 	}
 
-	req := apitype.UpdatePolicyGroupRequest{
-		AddPolicyPack: &apitype.PolicyPackMetadata{
-			Name:       policyPackName,
-			VersionTag: versionTag,
-			Config:     policyPackConfig,
+	req := cloudapitype.UpdatePolicyGroupRequest{
+		AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			AddPolicyPack: &cloudapitype.AppPolicyPackMetadata{
+				Name:       policyPackName,
+				VersionTag: versionTag,
+				Config:     policyPackConfig,
+			},
 		},
 	}
 
@@ -2276,10 +2308,12 @@ func (pc *Client) DisablePolicyPack(ctx context.Context, orgName string, policyG
 		policyGroup = apitype.DefaultPolicyGroup
 	}
 
-	req := apitype.UpdatePolicyGroupRequest{
-		RemovePolicyPack: &apitype.PolicyPackMetadata{
-			Name:       policyPackName,
-			VersionTag: versionTag,
+	req := cloudapitype.UpdatePolicyGroupRequest{
+		AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			RemovePolicyPack: &cloudapitype.AppPolicyPackMetadata{
+				Name:       policyPackName,
+				VersionTag: versionTag,
+			},
 		},
 	}
 

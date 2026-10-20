@@ -19,22 +19,22 @@ import (
 	"net/http"
 	"testing"
 
+	cloudapitype "github.com/pulumi/pulumi-cloud-sdk/go/apitype"
+	"github.com/pulumi/pulumi-cloud-sdk/go/apitype/jsonvalue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 )
 
 func rawJSONPtr(s string) *json.RawMessage {
 	return new(json.RawMessage(s))
 }
 
-func pinCreatePolicyGroupRequest() apitype.CreatePolicyGroupRequest {
-	return apitype.CreatePolicyGroupRequest{
+func pinCreatePolicyGroupRequest() cloudapitype.NewPolicyGroupRequest {
+	return cloudapitype.NewPolicyGroupRequest{
 		Name:        "prod-policies",
-		EntityType:  "stacks",
-		Mode:        "preventative",
-		AgentPoolID: "pool-123",
+		EntityType:  new(cloudapitype.PolicyGroupEntityTypeStacks), //nolint:staticcheck
+		Mode:        new(cloudapitype.PolicyGroupModePreventative),
+		AgentPoolID: jsonvalue.NotNull("pool-123"),
 	}
 }
 
@@ -55,22 +55,34 @@ func TestPin_CreatePolicyGroup_Body(t *testing.T) {
 	}`, got.body)
 }
 
-func pinBatchUpdatePolicyGroupRequests() []apitype.UpdatePolicyGroupRequest {
+func pinBatchUpdatePolicyGroupRequests() []cloudapitype.UpdatePolicyGroupRequest {
 	newName := "renamed"
-	return []apitype.UpdatePolicyGroupRequest{
-		{NewName: &newName},
-		{AddStack: &apitype.PulumiStackReference{Name: "dev", RoutingProject: "web"}},
-		{RemoveStack: &apitype.PulumiStackReference{Name: "old", RoutingProject: "api"}},
-		{AddPolicyPack: &apitype.PolicyPackMetadata{
-			Name:       "aws-pack",
-			VersionTag: "1.2.3",
-			Config: map[string]*json.RawMessage{
-				"s3-no-public": rawJSONPtr(`{"enforcementLevel":"mandatory","tags":["a","b"]}`),
+	return []cloudapitype.UpdatePolicyGroupRequest{
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{NewName: &newName}},
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			AddStack: &cloudapitype.AppPulumiStackReference{Name: "dev", RoutingProject: "web"},
+		}},
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			RemoveStack: &cloudapitype.AppPulumiStackReference{Name: "old", RoutingProject: "api"},
+		}},
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			AddPolicyPack: &cloudapitype.AppPolicyPackMetadata{
+				Name:       "aws-pack",
+				VersionTag: "1.2.3",
+				Config: map[string]*json.RawMessage{
+					"s3-no-public": rawJSONPtr(`{"enforcementLevel":"mandatory","tags":["a","b"]}`),
+				},
 			},
 		}},
-		{RemovePolicyPack: &apitype.PolicyPackMetadata{Name: "legacy-pack", VersionTag: "0.9.0"}},
-		{AddInsightsAccount: &apitype.InsightsAccountReference{Name: "prod-aws"}},
-		{RemoveInsightsAccount: &apitype.InsightsAccountReference{Name: "stale-gcp"}},
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			RemovePolicyPack: &cloudapitype.AppPolicyPackMetadata{Name: "legacy-pack", VersionTag: "0.9.0"},
+		}},
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			AddInsightsAccount: &cloudapitype.AppInsightsAccountReference{Name: "prod-aws"},
+		}},
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			RemoveInsightsAccount: &cloudapitype.AppInsightsAccountReference{Name: "stale-gcp"},
+		}},
 	}
 }
 
@@ -89,10 +101,12 @@ func TestPin_BatchUpdatePolicyGroup_Body(t *testing.T) {
 		{"removeStack": {"name": "old", "routingProject": "api"}},
 		{"addPolicyPack": {
 			"name": "aws-pack",
+			"displayName": "",
+			"version": 0,
 			"versionTag": "1.2.3",
 			"config": {"s3-no-public": {"enforcementLevel": "mandatory", "tags": ["a", "b"]}}
 		}},
-		{"removePolicyPack": {"name": "legacy-pack", "versionTag": "0.9.0"}},
+		{"removePolicyPack": {"name": "legacy-pack", "displayName": "", "version": 0, "versionTag": "0.9.0"}},
 		{"addInsightsAccount": {"name": "prod-aws"}},
 		{"removeInsightsAccount": {"name": "stale-gcp"}}
 	]`, got.body)
@@ -114,6 +128,8 @@ func TestPin_ApplyPolicyPack_Body(t *testing.T) {
 	assert.JSONEq(t, `{
 		"addPolicyPack": {
 			"name": "aws-pack",
+			"displayName": "",
+			"version": 0,
 			"versionTag": "1.2.3",
 			"config": {
 				"s3-no-public": {"enforcementLevel": "mandatory"},
@@ -135,7 +151,8 @@ func TestPin_DisablePolicyPack_Body(t *testing.T) {
 
 		assert.Equal(t, http.MethodPatch, got.method)
 		assert.Equal(t, "/api/orgs/acme/policygroups/prod-policies", got.path)
-		assert.JSONEq(t, `{"removePolicyPack": {"name": "aws-pack", "versionTag": "1.2.3"}}`, got.body)
+		assert.JSONEq(t, `{"removePolicyPack": {
+			"name": "aws-pack", "displayName": "", "version": 0, "versionTag": "1.2.3"}}`, got.body)
 	})
 
 	t.Run("without versionTag", func(t *testing.T) {
@@ -145,7 +162,8 @@ func TestPin_DisablePolicyPack_Body(t *testing.T) {
 		c := newCapturingClient(t, &got)
 		require.NoError(t, c.DisablePolicyPack(t.Context(), "acme", "prod-policies", "aws-pack", ""))
 
-		assert.JSONEq(t, `{"removePolicyPack": {"name": "aws-pack"}}`, got.body)
+		assert.JSONEq(t, `{"removePolicyPack": {
+			"name": "aws-pack", "displayName": "", "version": 0, "versionTag": ""}}`, got.body)
 	})
 }
 
@@ -154,12 +172,14 @@ func TestPin_BatchUpdatePolicyGroup_BareStackReference_Body(t *testing.T) {
 
 	var got capturedRequest
 	c := newCapturingClient(t, &got)
-	reqs := []apitype.UpdatePolicyGroupRequest{
-		{AddStack: &apitype.PulumiStackReference{Name: "standalone"}},
+	reqs := []cloudapitype.UpdatePolicyGroupRequest{
+		{AppUpdatePolicyGroupRequest: cloudapitype.AppUpdatePolicyGroupRequest{
+			AddStack: &cloudapitype.AppPulumiStackReference{Name: "standalone"},
+		}},
 	}
 	require.NoError(t, c.BatchUpdatePolicyGroup(t.Context(), "acme", "prod-policies", reqs))
 
-	assert.JSONEq(t, `[{"addStack": {"name": "standalone"}}]`, got.body)
+	assert.JSONEq(t, `[{"addStack": {"name": "standalone", "routingProject": ""}}]`, got.body)
 }
 
 func TestPin_ApplyPolicyPack_NoVersionTag_Body(t *testing.T) {
@@ -169,5 +189,6 @@ func TestPin_ApplyPolicyPack_NoVersionTag_Body(t *testing.T) {
 	c := newCapturingClient(t, &got)
 	require.NoError(t, c.ApplyPolicyPack(t.Context(), "acme", "prod-policies", "aws-pack", "", nil))
 
-	assert.JSONEq(t, `{"addPolicyPack": {"name": "aws-pack"}}`, got.body)
+	assert.JSONEq(t, `{"addPolicyPack": {
+		"name": "aws-pack", "displayName": "", "version": 0, "versionTag": ""}}`, got.body)
 }
