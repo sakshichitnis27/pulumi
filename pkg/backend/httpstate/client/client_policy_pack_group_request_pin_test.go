@@ -1,0 +1,173 @@
+// Copyright 2026, Pulumi Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package client
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
+)
+
+func rawJSONPtr(s string) *json.RawMessage {
+	return new(json.RawMessage(s))
+}
+
+func pinCreatePolicyGroupRequest() apitype.CreatePolicyGroupRequest {
+	return apitype.CreatePolicyGroupRequest{
+		Name:        "prod-policies",
+		EntityType:  "stacks",
+		Mode:        "preventative",
+		AgentPoolID: "pool-123",
+	}
+}
+
+func TestPin_CreatePolicyGroup_Body(t *testing.T) {
+	t.Parallel()
+
+	var got capturedRequest
+	c := newCapturingClient(t, &got)
+	require.NoError(t, c.CreatePolicyGroup(t.Context(), "acme", pinCreatePolicyGroupRequest()))
+
+	assert.Equal(t, http.MethodPost, got.method)
+	assert.Equal(t, "/api/orgs/acme/policygroups", got.path)
+	assert.JSONEq(t, `{
+		"name": "prod-policies",
+		"entityType": "stacks",
+		"mode": "preventative",
+		"agentPoolId": "pool-123"
+	}`, got.body)
+}
+
+func pinBatchUpdatePolicyGroupRequests() []apitype.UpdatePolicyGroupRequest {
+	newName := "renamed"
+	return []apitype.UpdatePolicyGroupRequest{
+		{NewName: &newName},
+		{AddStack: &apitype.PulumiStackReference{Name: "dev", RoutingProject: "web"}},
+		{RemoveStack: &apitype.PulumiStackReference{Name: "old", RoutingProject: "api"}},
+		{AddPolicyPack: &apitype.PolicyPackMetadata{
+			Name:       "aws-pack",
+			VersionTag: "1.2.3",
+			Config: map[string]*json.RawMessage{
+				"s3-no-public": rawJSONPtr(`{"enforcementLevel":"mandatory","tags":["a","b"]}`),
+			},
+		}},
+		{RemovePolicyPack: &apitype.PolicyPackMetadata{Name: "legacy-pack", VersionTag: "0.9.0"}},
+		{AddInsightsAccount: &apitype.InsightsAccountReference{Name: "prod-aws"}},
+		{RemoveInsightsAccount: &apitype.InsightsAccountReference{Name: "stale-gcp"}},
+	}
+}
+
+func TestPin_BatchUpdatePolicyGroup_Body(t *testing.T) {
+	t.Parallel()
+
+	var got capturedRequest
+	c := newCapturingClient(t, &got)
+	require.NoError(t, c.BatchUpdatePolicyGroup(t.Context(), "acme", "prod-policies", pinBatchUpdatePolicyGroupRequests()))
+
+	assert.Equal(t, http.MethodPatch, got.method)
+	assert.Equal(t, "/api/orgs/acme/policygroups/prod-policies/batch", got.path)
+	assert.JSONEq(t, `[
+		{"newName": "renamed"},
+		{"addStack": {"name": "dev", "routingProject": "web"}},
+		{"removeStack": {"name": "old", "routingProject": "api"}},
+		{"addPolicyPack": {
+			"name": "aws-pack",
+			"versionTag": "1.2.3",
+			"config": {"s3-no-public": {"enforcementLevel": "mandatory", "tags": ["a", "b"]}}
+		}},
+		{"removePolicyPack": {"name": "legacy-pack", "versionTag": "0.9.0"}},
+		{"addInsightsAccount": {"name": "prod-aws"}},
+		{"removeInsightsAccount": {"name": "stale-gcp"}}
+	]`, got.body)
+}
+
+func TestPin_ApplyPolicyPack_Body(t *testing.T) {
+	t.Parallel()
+
+	var got capturedRequest
+	c := newCapturingClient(t, &got)
+	config := map[string]*json.RawMessage{
+		"s3-no-public":   rawJSONPtr(`{"enforcementLevel":"mandatory"}`),
+		"ec2-no-ssh-any": rawJSONPtr(`{"enforcementLevel":"advisory","allowedCidrs":["10.0.0.0/8"]}`),
+	}
+	require.NoError(t, c.ApplyPolicyPack(t.Context(), "acme", "prod-policies", "aws-pack", "1.2.3", config))
+
+	assert.Equal(t, http.MethodPatch, got.method)
+	assert.Equal(t, "/api/orgs/acme/policygroups/prod-policies", got.path)
+	assert.JSONEq(t, `{
+		"addPolicyPack": {
+			"name": "aws-pack",
+			"versionTag": "1.2.3",
+			"config": {
+				"s3-no-public": {"enforcementLevel": "mandatory"},
+				"ec2-no-ssh-any": {"enforcementLevel": "advisory", "allowedCidrs": ["10.0.0.0/8"]}
+			}
+		}
+	}`, got.body)
+}
+
+func TestPin_DisablePolicyPack_Body(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with versionTag", func(t *testing.T) {
+		t.Parallel()
+
+		var got capturedRequest
+		c := newCapturingClient(t, &got)
+		require.NoError(t, c.DisablePolicyPack(t.Context(), "acme", "prod-policies", "aws-pack", "1.2.3"))
+
+		assert.Equal(t, http.MethodPatch, got.method)
+		assert.Equal(t, "/api/orgs/acme/policygroups/prod-policies", got.path)
+		assert.JSONEq(t, `{"removePolicyPack": {"name": "aws-pack", "versionTag": "1.2.3"}}`, got.body)
+	})
+
+	t.Run("without versionTag", func(t *testing.T) {
+		t.Parallel()
+
+		var got capturedRequest
+		c := newCapturingClient(t, &got)
+		require.NoError(t, c.DisablePolicyPack(t.Context(), "acme", "prod-policies", "aws-pack", ""))
+
+		assert.JSONEq(t, `{"removePolicyPack": {"name": "aws-pack"}}`, got.body)
+	})
+}
+
+func TestPin_BatchUpdatePolicyGroup_BareStackReference_Body(t *testing.T) {
+	t.Parallel()
+
+	var got capturedRequest
+	c := newCapturingClient(t, &got)
+	reqs := []apitype.UpdatePolicyGroupRequest{
+		{AddStack: &apitype.PulumiStackReference{Name: "standalone"}},
+	}
+	require.NoError(t, c.BatchUpdatePolicyGroup(t.Context(), "acme", "prod-policies", reqs))
+
+	assert.JSONEq(t, `[{"addStack": {"name": "standalone"}}]`, got.body)
+}
+
+func TestPin_ApplyPolicyPack_NoVersionTag_Body(t *testing.T) {
+	t.Parallel()
+
+	var got capturedRequest
+	c := newCapturingClient(t, &got)
+	require.NoError(t, c.ApplyPolicyPack(t.Context(), "acme", "prod-policies", "aws-pack", "", nil))
+
+	assert.JSONEq(t, `{"addPolicyPack": {"name": "aws-pack"}}`, got.body)
+}
