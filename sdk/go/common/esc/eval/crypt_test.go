@@ -97,6 +97,19 @@ func TestCrypt(t *testing.T) {
 	}
 }
 
+func TestEncryptNoSecretsKeepsSource(t *testing.T) {
+	t.Parallel()
+	const doc = `values:
+  x:   1
+
+  # trailing comment
+`
+
+	encrypted, err := EncryptSecrets(t.Context(), "doc", []byte(doc), rot128{})
+	require.NoError(t, err)
+	assert.Equal(t, doc, string(encrypted))
+}
+
 func TestDecryptInvalidBase64(t *testing.T) {
 	t.Parallel()
 	const doc = `values:

@@ -56,12 +56,20 @@ func rewriteYAML(
 		return nil, diags
 	}
 
-	doc, diags, err := syntax.Walk(syn, visitor)
+	changed := false
+	doc, diags, err := syntax.Walk(syn, func(n syntax.Node) (syntax.Node, syntax.Diagnostics, error) {
+		m, diags, err := visitor(n)
+		changed = changed || m != n
+		return m, diags, err
+	})
 	if err != nil {
 		return nil, err
 	}
 	if len(diags) != 0 {
 		return nil, diags
+	}
+	if !changed {
+		return source, nil
 	}
 
 	var b bytes.Buffer
