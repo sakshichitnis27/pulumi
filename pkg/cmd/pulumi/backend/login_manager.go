@@ -95,7 +95,9 @@ func WithoutNewProjectHint() LoginOption {
 	}
 }
 
-var DefaultLoginManager LoginManager = &lm{session: credentialhelper.NewSession()}
+var DefaultLoginManager LoginManager = &lm{
+	session: credentialhelper.NewSession(helperDiagnosticWriter{sink: cmdutil.Diag}),
+}
 
 type helperDiagnosticWriter struct {
 	sink func() diag.Sink
