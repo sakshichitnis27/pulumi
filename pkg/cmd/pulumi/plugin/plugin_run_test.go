@@ -196,7 +196,7 @@ func TestPluginRunCommand(t *testing.T) {
 					workspace.Account{AccessToken: test.token}, false))
 			}
 			ptesting.Unsetenv(t, "HELPER_CHILD")
-			session := credentialhelper.NewSession()
+			session := credentialhelper.NewSession(io.Discard)
 			lm := cmdBackend.NewLoginManager(diagtest.LogSink(t), session)
 			old := cmdBackend.DefaultLoginManager
 			cmdBackend.DefaultLoginManager = lm

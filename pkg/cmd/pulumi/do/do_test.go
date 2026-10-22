@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1455,7 +1456,7 @@ func TestDoProviderHelperCredentials(t *testing.T) {
 				require.Zero(t, code)
 				return nil, stop
 			}
-			lm := cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession())
+			lm := cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession(io.Discard))
 			cmd := NewDoCmd(lm, newTestWorkspace(t), loader, testHost, panicLoadConverterPlugin, nil)
 			cmd.SetContext(t.Context())
 			cmd.SetArgs([]string{"test:index:Thing"})

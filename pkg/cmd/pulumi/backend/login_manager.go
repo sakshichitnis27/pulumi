@@ -17,6 +17,8 @@ package backend
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
 	pkgauth "github.com/pulumi/pulumi/pkg/v3/auth"
 	"github.com/pulumi/pulumi/pkg/v3/auth/credentialhelper"
@@ -92,7 +94,17 @@ func WithoutNewProjectHint() LoginOption {
 	}
 }
 
-var DefaultLoginManager = NewLoginManager(cmdutil.Diag(), credentialhelper.NewSession())
+var DefaultLoginManager = NewLoginManager(
+	cmdutil.Diag(), credentialhelper.NewSession(helperDiagnosticWriter{sink: cmdutil.Diag}))
+
+type helperDiagnosticWriter struct {
+	sink func() diag.Sink
+}
+
+func (w helperDiagnosticWriter) Write(p []byte) (int, error) {
+	w.sink().Infoerrf(diag.RawMessage("", strings.TrimSuffix(string(p), "\n")))
+	return len(p), nil
+}
 
 type lm struct {
 	session *credentialhelper.Session
@@ -102,7 +114,7 @@ type lm struct {
 // NewLoginManager shares backend clients and helper credentials for one command.
 func NewLoginManager(sink diag.Sink, session *credentialhelper.Session) LoginManager {
 	if session == nil {
-		session = credentialhelper.NewSession()
+		session = credentialhelper.NewSession(helperDiagnosticWriter{sink: func() diag.Sink { return sink }})
 	}
 	return &lm{session: session, clients: httpstate.NewClientSource(session, sink)}
 }
@@ -337,7 +349,7 @@ func (f *lm) openHTTPBackend(
 // CredentialHelperSession returns the helper session used by a test login manager.
 func (m *MockLoginManager) CredentialHelperSession() *credentialhelper.Session {
 	if m.Helpers == nil {
-		m.Helpers = credentialhelper.NewSession()
+		m.Helpers = credentialhelper.NewSession(io.Discard)
 	}
 	return m.Helpers
 }

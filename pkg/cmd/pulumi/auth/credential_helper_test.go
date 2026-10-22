@@ -71,7 +71,7 @@ func TestPluginCredentialsUseProjectBackend(t *testing.T) {
 	ptesting.IsolateCredentials(t)
 	const response = `{"version":1,"accessToken":"helper-token"}`
 	flags, log := loginHelperFlags(t, response)
-	session := credentialhelper.NewSession()
+	session := credentialhelper.NewSession(io.Discard)
 	require.NoError(t, session.Configure(flags[1], []string{"--", "-credential-helper-test", log, response}))
 	lm := cmdBackend.NewLoginManager(diagtest.LogSink(t), session)
 	project := &workspace.Project{Backend: &workspace.ProjectBackend{URL: "https://api.example.com"}}
@@ -196,7 +196,8 @@ func TestLoginHelperHTTPAuthentication(t *testing.T) {
 			flags, log := loginHelperFlags(t, response)
 			flags = append(flags, server.URL)
 			cmd := NewLoginCmd(
-				pkgWorkspace.Instance, cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession()), env.Global())
+				pkgWorkspace.Instance,
+				cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession(io.Discard)), env.Global())
 			cmd.SetOut(io.Discard)
 			cmd.SetErr(io.Discard)
 			cmd.SetArgs(flags)
@@ -220,7 +221,7 @@ func TestLoginHelperHTTPAuthentication(t *testing.T) {
 			t.Setenv("PULUMI_CREDENTIAL_HELPER", "")
 			be, err := cmdBackend.CurrentBackend(
 				cmd.Context(), pkgWorkspace.Instance,
-				cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession()), nil,
+				cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession(io.Discard)), nil,
 				display.Options{Color: colors.Never})
 			require.NoError(t, err)
 			user, orgs, tokenInfo, err := be.CurrentUser()
@@ -310,7 +311,8 @@ func TestOIDCRejectsHelperBeforeExecution(t *testing.T) {
 	require.NoError(t, err)
 	t.Setenv("PULUMI_CREDENTIAL_HELPER_ARGS", string(raw))
 	cmd := NewLoginCmd(
-		pkgWorkspace.Instance, cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession()), env.Global())
+		pkgWorkspace.Instance,
+		cmdBackend.NewLoginManager(diagtest.LogSink(t), credentialhelper.NewSession(io.Discard)), env.Global())
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"--oidc-token", "irrelevant-token"})

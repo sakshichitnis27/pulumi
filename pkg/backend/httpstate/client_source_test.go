@@ -16,6 +16,7 @@ package httpstate
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,7 +63,7 @@ func TestClientSourceKeepsRefreshedAccount(t *testing.T) {
 			require.NoError(t, workspace.StoreAccount(test.accountURL, workspace.Account{
 				AccessToken: "stale", RefreshToken: "refresh",
 			}, true))
-			source := NewClientSource(credentialhelper.NewSession(), nil)
+			source := NewClientSource(credentialhelper.NewSession(io.Discard), nil)
 			c, err := source.ClientForURL(t.Context(), test.accountURL, false)
 			require.NoError(t, err)
 			_, _, _, err = c.GetPulumiAccountDetails(t.Context())
@@ -88,7 +89,7 @@ func TestClientSourceKeepsRefreshedAccount(t *testing.T) {
 func TestClientSourceCachesAuthenticatedClients(t *testing.T) {
 	ptesting.IsolateCredentials(t)
 	const backendURL = "https://api.example.com"
-	source := NewClientSource(credentialhelper.NewSession(), nil)
+	source := NewClientSource(credentialhelper.NewSession(io.Discard), nil)
 	_, err := source.ClientForURL(t.Context(), "", false)
 	require.ErrorContains(t, err, "requires a backend URL")
 	_, err = source.ClientForURL(t.Context(), backendURL, false)
@@ -116,7 +117,7 @@ func TestClientSourceFallsBackToAgentCredentials(t *testing.T) {
 	err := workspace.StoreAgentAccount(cloudURL, workspace.Account{AccessToken: "agent-token"}, true)
 	require.NoError(t, err)
 
-	source := NewClientSource(credentialhelper.NewSession(), nil)
+	source := NewClientSource(credentialhelper.NewSession(io.Discard), nil)
 	resolved, err := source.resolve(t.Context(), cloudURL, false)
 	account := resolved.account
 	require.NoError(t, err)
@@ -139,7 +140,7 @@ func TestClientSourceDoesNotFallbackWithExplicitPath(t *testing.T) {
 	err := workspace.StoreAgentAccount(cloudURL, workspace.Account{AccessToken: "agent-token"}, true)
 	require.NoError(t, err)
 
-	resolved, err := NewClientSource(credentialhelper.NewSession(), nil).resolve(t.Context(), cloudURL, false)
+	resolved, err := NewClientSource(credentialhelper.NewSession(io.Discard), nil).resolve(t.Context(), cloudURL, false)
 	account := resolved.account
 	require.NoError(t, err)
 	assert.Empty(t, account.AccessToken)

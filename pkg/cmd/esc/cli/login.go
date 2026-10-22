@@ -72,7 +72,7 @@ func (esc *escCommand) getCachedClient(ctx context.Context) error {
 	}
 	session := esc.helpers
 	if session == nil {
-		session = credentialhelper.NewSession()
+		session = credentialhelper.NewSession(esc.stderr)
 		esc.helpers = session
 	}
 	helper, err := session.Resolve(ctx, projectURL)

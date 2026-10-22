@@ -784,7 +784,7 @@ func GetLogs(
 	snap, err := stack.DeserializeDeploymentV3(
 		t.Context(),
 		*stackInfo.Deployment,
-		secrets.NewProvider(httpstate.NewClientSource(credentialhelper.NewSession(), cmdutil.Diag()).ClientForURL))
+		secrets.NewProvider(httpstate.NewClientSource(credentialhelper.NewSession(os.Stderr), cmdutil.Diag()).ClientForURL))
 	require.NoError(t, err)
 
 	tree := operations.NewResourceTree(snap.Resources)

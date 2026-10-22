@@ -89,7 +89,6 @@ func (b *cloudBackend) recordAndDisplayEvents(
 	displayEvents := make(chan engine.Event) // Note: unbuffered, but we assume it won't matter in practice.
 	displayEventsDone := make(chan bool)
 	stopHelperDiagnostics := b.routeHelperDiagnostics(displayEvents, displayEventsDone, opts)
-	defer stopHelperDiagnostics()
 
 	persistEvents := make(chan engine.Event, 100)
 	persistEventsDone := make(chan bool)
@@ -97,6 +96,7 @@ func (b *cloudBackend) recordAndDisplayEvents(
 	// We close our own done channel when both of the dependent components have finished.
 	defer func() {
 		<-displayEventsDone
+		stopHelperDiagnostics()
 		<-persistEventsDone
 		close(done)
 	}()
@@ -481,11 +481,23 @@ func (b *cloudBackend) routeHelperDiagnostics(
 		opts.SummaryJSON || opts.Type != display.DisplayProgress {
 		return func() {}
 	}
-	return b.helper.DisplayDiagnostics(func(message string) {
-		event := engine.NewEvent(engine.StdoutEventPayload{Message: message + "\n", Color: colors.Never})
-		select {
-		case events <- event:
-		case <-done:
+	messages := make(chan string)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		// Keep receiving after display shutdown so in-flight sends can finish before detachment.
+		for message := range messages {
+			event := engine.NewEvent(engine.StdoutEventPayload{Message: message + "\n", Color: colors.Never})
+			select {
+			case events <- event:
+			case <-done:
+			}
 		}
+	}()
+	detach := b.helper.DisplayDiagnostics(messages)
+	return sync.OnceFunc(func() {
+		detach()
+		close(messages)
+		<-finished
 	})
 }

@@ -17,6 +17,7 @@ package credentialhelper_test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -74,7 +75,7 @@ func TestRefreshFailureSurvivesHTTPRetries(t *testing.T) {
 			executable, err := os.Executable()
 			require.NoError(t, err)
 			log := filepath.Join(t.TempDir(), "requests.jsonl")
-			session := credentialhelper.NewSession()
+			session := credentialhelper.NewSession(io.Discard)
 			require.NoError(t, session.Configure(executable,
 				[]string{"--", "-credential-helper-test", log, string(responses)}))
 			credentials, err := session.Resolve(t.Context(), server.URL)

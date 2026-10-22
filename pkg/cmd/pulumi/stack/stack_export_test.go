@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -88,7 +89,7 @@ func stackHelperClient(t *testing.T, backendURL, response string) (*httpstate.Cl
 	t.Helper()
 	executable, err := os.Executable()
 	require.NoError(t, err)
-	session := credentialhelper.NewSession()
+	session := credentialhelper.NewSession(io.Discard)
 	require.NoError(t, session.Configure(executable, []string{"--", "-credential-helper-test", response}))
 	resolved, err := session.Resolve(t.Context(), backendURL)
 	require.NoError(t, err)
